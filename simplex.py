@@ -75,14 +75,8 @@ class SimplexTableau:
             self.dump()
 
     def bland_primal_step(self):
-        # for l in range(self.n):
-        #     if self.c[l] > self.epsilon:
-        #         j = l
-        #         break
-        # else:
-        #     return 'optimal'
         try:
-            v, j = min((self.nb_vars[j], j)
+            v, j = min((self.nb_vars[j], self.nb_vars[j])
                        for j in range(self.n)
                        if self.c[j] > self.epsilon)
         except ValueError:
@@ -126,14 +120,13 @@ class SimplexTableau:
         while True:
             for i, sv in enumerate(self.b_vars):
                 if self.debug_level > 0:
-                    print("Pivoting out {sv}.")
+                    print(f"Pivoting out {sv}.")
                 if sv[0] == 's':
                     for j, nv in enumerate(self.nb_vars):
                         if nv[0] != 's' and abs(self.A[i][j]) > self.epsilon:
                             break
                     else:
-                        print("Singular matrix!!!!")
-                        return
+                        raise Exception("Singular matrix!!!!")
                     self.pivot(i, j)
                     break
             else:
