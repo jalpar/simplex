@@ -42,6 +42,19 @@ class SimplexTableau:
         self.b_vars = list(f"s{i}" for i in range(n+1, n+m+1))
         self.update_vars()
 
+    def dump(self):
+        M = [[''] + self.nb_vars] + \
+            [[bv]+r+['|', rh] for bv, r, rh in zip(self.b_vars,
+                                                   self.A,
+                                                   self.b)] + \
+            [['c'] + self.c]
+        print_m(M)
+        print()
+        print("Primal solution: ", end="")
+        for i in range(self.m):
+            print(f"{self.b_vars[i]}:{self.b[i]} ", end='')
+        print()
+
     def pivot(self, i, j):
         if self.debug_level > 0:
             print(f"Pivot {self.b_vars[i]} -> {self.nb_vars[j]}  ({i},{j})")
@@ -96,25 +109,17 @@ class SimplexTableau:
             if ret in ['optimal', 'unbounded']:
                 return ret
 
-    def bland_dual(self):
-        while True:
-            for k in range(self.n):
-                if self.b[k] < -self.epsilon:
-                    i = k
-                    break
-            else:
-                return 'optimal'
-            try:
-                delta, j = min((self.c[j]/self.A[i][j], j)
-                               for j in range(self.n)
-                               if self.A[i][j] < -self.epsilon)
-            except ValueError:
-                return 'unbounded'
-            self.pivot(i, j)
-
     def first_phase_cost(self):
         for j in range(self.n):
             self.c[j] = sum(self.A[i][j] for i in range(self.m))
+
+    def setup_costs(self, **costs):
+        self.c = [costs[v] if v in costs else self.Z for v in self.nb_vars]
+        for v, r in zip(self.b_vars, self.A):
+            if v in costs:
+                c = costs[v]
+                for j in range(self.n):
+                    c[j] -= c*r[j]
 
     def pivot_out_slacks(self):
         while True:
@@ -132,18 +137,28 @@ class SimplexTableau:
             else:
                 break
 
-    def dump(self):
-        M = [[''] + self.nb_vars] + \
-            [[bv]+r+['|', rh] for bv, r, rh in zip(self.b_vars,
-                                                   self.A,
-                                                   self.b)] + \
-            [['c'] + self.c]
-        print_m(M)
-        print()
-        print("Primal solution: ", end="")
-        for i in range(self.m):
-            print(f"{self.b_vars[i]}:{self.b[i]} ", end='')
-        print()
+    def two_phase_simplex(self, **costs):
+        self.first_phase_cost()
+        self.bland_primal()
+        self.pivot_out_slacks()
+        self.setup_costs(**costs)
+        self.bland_primal()
+
+    def bland_dual(self):       # Doesn't work jet.
+        while True:
+            for k in range(self.n):
+                if self.b[k] < -self.epsilon:
+                    i = k
+                    break
+            else:
+                return 'optimal'
+            try:
+                delta, j = min((self.c[j]/self.A[i][j], j)
+                               for j in range(self.n)
+                               if self.A[i][j] < -self.epsilon)
+            except ValueError:
+                return 'unbounded'
+            self.pivot(i, j)
 
 
 def make_example():
