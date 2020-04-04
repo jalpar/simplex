@@ -38,8 +38,8 @@ class SimplexTableau:
         self.A = [[Z]*n for i in range(m)]
         self.b = [Z]*m
         self.c = [Z]*n
-        self.nb_vars = list(range(n))
-        self.b_vars = list(range(n, n+m))
+        self.nb_vars = list(f"x{i}" for i in range(1, n+1))
+        self.b_vars = list(f"s{i}" for i in range(n+1, n+m+1))
         self.update_vars()
 
     def pivot(self, i, j):
@@ -166,9 +166,6 @@ def make_example():
     s.A[2][4] = Frac(1)
     s.b[2] = Frac(14)
 
-    s.nb_vars = ["x1", "x2", "x3", "x4", "x5"]
-    s.b_vars = ["s1", "s2", "s3"]
-    s.update_vars()
     s.first_phase_cost()
     return s
 
@@ -193,13 +190,11 @@ def make_example2():
     s.A[2][4] = Frac(1)
     s.b[2] = Frac(3)
 
-    s.nb_vars = ["x1", "x2", "x3", "x4", "x5"]
-    s.b_vars = ["s1", "s2", "s3"]
-    s.update_vars()
     s.first_phase_cost()
     return s
 
-def make_example2():
+
+def make_example3():
     s = SimplexTableau(3, 5)
     s.A[0][0] = Frac(1)
     s.A[0][1] = Frac(1)
@@ -219,9 +214,6 @@ def make_example2():
     s.A[2][4] = Frac(1)
     s.b[2] = Frac(0)
 
-    s.nb_vars = ["x1", "x2", "x3", "x4", "x5"]
-    s.b_vars = ["s1", "s2", "s3"]
-    s.update_vars()
     s.first_phase_cost()
     return s
 
