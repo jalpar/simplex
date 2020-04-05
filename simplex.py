@@ -87,9 +87,9 @@ class SimplexTableau:
             print()
             self.dump()
 
-    def bland_primal_step(self):
+    def primal_step(self):
         try:
-            v, j = min((self.nb_vars[j], self.nb_vars[j])
+            v, j = min((self.nb_vars[j], j)
                        for j in range(self.n)
                        if self.c[j] > self.epsilon)
         except ValueError:
@@ -103,7 +103,7 @@ class SimplexTableau:
         self.pivot(i, j)
         return 'go_on'
 
-    def bland_primal(self):
+    def primal(self):
         while True:
             ret = self.bland_primal_step()
             if ret in ['optimal', 'unbounded']:
@@ -131,7 +131,13 @@ class SimplexTableau:
                         if nv[0] != 's' and abs(self.A[i][j]) > self.epsilon:
                             break
                     else:
-                        raise Exception("Singular matrix!!!!")
+                        # raise Exception("Singular matrix!!!!")
+                        if self.debug_level > 0:
+                            print(f"Singular matrix, remove row {i} ({sv}).")
+                            del self.A[i]
+                            del self.b_vars[i]
+                            self.update_vars()
+                            break
                     self.pivot(i, j)
                     break
             else:
@@ -139,26 +145,31 @@ class SimplexTableau:
 
     def two_phase_simplex(self, **costs):
         self.first_phase_cost()
-        self.bland_primal()
+        self.primal()
         self.pivot_out_slacks()
         self.setup_costs(**costs)
-        self.bland_primal()
+        self.primal()
 
-    def bland_dual(self):       # Doesn't work jet.
+    def dual_step(self):
+        try:
+            v, i = min((self.b_vars[i], i)
+                       for i in range(self.m)
+                       if self.b[i] > -self.epsilon)
+        except ValueError:
+            return 'optimal'
+        try:
+            delta, v, j = min((self.c[j]/self.A[i][j], self.nb_vars[i], j)
+                              for j in range(self.n)
+                              if self.A[i][j] < -self.epsilon)
+        except ValueError:
+            return 'unbounded'
+        self.pivot(i, j)
+
+    def dual(self):
         while True:
-            for k in range(self.n):
-                if self.b[k] < -self.epsilon:
-                    i = k
-                    break
-            else:
-                return 'optimal'
-            try:
-                delta, j = min((self.c[j]/self.A[i][j], j)
-                               for j in range(self.n)
-                               if self.A[i][j] < -self.epsilon)
-            except ValueError:
-                return 'unbounded'
-            self.pivot(i, j)
+            ret = self.dual_step()
+            if ret in ['optimal', 'unbounded']:
+                return ret
 
 
 def make_example():
