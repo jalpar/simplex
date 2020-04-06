@@ -109,13 +109,17 @@ class SimplexTableau:
         self.pivot(i, j)
         return 'go_on'
 
-    def primal(self):
+    def primal(self, skip_slacks=True):
         while True:
-            ret = self.bland_primal_step()
+            ret = self.bland_primal_step(skip_slacks=skip_slacks)
             if ret in ['optimal', 'unbounded']:
                 return ret
 
-    def first_phase_cost(self):
+    def setup_zero_cost(self):
+        for j in range(self.n):
+            self.c = [self.Z] * range(self.m)
+
+    def setup_first_phase_cost(self):
         for j in range(self.n):
             self.c[j] = sum(self.A[i][j] for i in range(self.m))
 
@@ -162,7 +166,7 @@ class SimplexTableau:
         self.update_vars()
 
     def two_phase_simplex(self):
-        self.first_phase_cost()
+        self.setup_first_phase_cost()
         self.primal(skip_slacks=False)
         if self.calc_first_phase_cost() > self.epsilon:
             return 'infeasible'
@@ -192,6 +196,14 @@ class SimplexTableau:
             if ret in ['optimal', 'unbounded']:
                 return ret
 
+    def two_phase_simplex_2(self):
+        self.pivot_out_slacks()
+        self.setup_zero_cost()
+        if self.dual() == 'unbounded':
+            return 'infeasible'
+        self.setup_costs()
+        return self.primal(skip_slacks=True)
+
 
 def make_example():
     s = SimplexTableau(3, 5)
@@ -213,7 +225,7 @@ def make_example():
     s.A[2][4] = Frac(1)
     s.b[2] = Frac(14)
 
-    s.first_phase_cost()
+    s.setup_first_phase_cost()
     return s
 
 
@@ -237,7 +249,7 @@ def make_example2():
     s.A[2][4] = Frac(1)
     s.b[2] = Frac(3)
 
-    s.first_phase_cost()
+    s.setup_first_phase_cost()
     return s
 
 
@@ -261,5 +273,5 @@ def make_example3():
     s.A[2][4] = Frac(1)
     s.b[2] = Frac(0)
 
-    s.first_phase_cost()
+    s.setup_first_phase_cost()
     return s
