@@ -29,18 +29,21 @@ class SimplexTableau:
         self.vars.update((v, (1, i)) for i, v in enumerate(self.b_vars))
 
     def __init__(self, m, n):
-        Z = 0
+        self.Z = 0
         self.debug_level = 2
         self.epsilon = 0
         self.m = m
         self.n = n
-        self.A = [[Z]*n for i in range(m)]
-        self.b = [Z]*m
-        self.c = [Z]*n
+        self.A = [[self.Z]*n for i in range(m)]
+        self.b = [self.Z]*m
+        self.c = [self.Z]*n
         self.nb_vars = list(f"x{i}" for i in range(1, n+1))
-        self.b_vars = list(f"s{i}" for i in range(n+1, n+m+1))
+        self.b_vars = list(f"s{i}" for i in range(1, m+1))
         self.update_vars()
         self.costs = {}
+
+    def set_costs(self, **costs):
+        self.costs = copy.copy(costs)
 
     def dump(self):
         M = [[''] + self.nb_vars] + \
@@ -55,12 +58,13 @@ class SimplexTableau:
             print(f"{self.b_vars[i]}:{self.b[i]} ", end='')
         print()
 
-    def is_slack(v):
-        return v[1] == 's'
+    def is_slack(self, v):
+        return v[0] == 's'
 
     def pivot(self, i, j):
         if self.debug_level > 0:
-            print(f"Pivot {self.b_vars[i]} -> {self.nb_vars[j]}  ({i},{j})")
+            print(f"\n*** Pivot {self.b_vars[i]} -> "
+                  f"{self.nb_vars[j]}  ({i},{j})")
         piv = self.A[i][j]
         delta = self.c[j]/piv
         if self.debug_level > 1:
@@ -110,30 +114,34 @@ class SimplexTableau:
         return 'go_on'
 
     def primal(self, skip_slacks=True):
+        if self.debug_level > 0:
+            print("Start Primal Simplex")
+        if self.debug_level > 1:
+            self.dump()
         while True:
-            ret = self.bland_primal_step(skip_slacks=skip_slacks)
+            ret = self.primal_step(skip_slacks=skip_slacks)
             if ret in ['optimal', 'unbounded']:
                 return ret
 
-    def setup_zero_cost(self):
+    def init_zero_reduced_costs(self):
         for j in range(self.n):
-            self.c = [self.Z] * range(self.m)
+            self.c = [self.Z] * self.n
 
-    def setup_first_phase_cost(self):
+    def init_first_phase_costs(self):
         for j in range(self.n):
             self.c[j] = sum(self.A[i][j] for i in range(self.m))
 
     def calc_first_phase_cost(self):
         return sum(b for v, b in zip(self.b_vars, self.b) if self.is_slack(v))
 
-    def setup_costs(self):
+    def init_reduced_costs(self):
         self.c = [self.costs[v] if v in self.costs else self.Z
                   for v in self.nb_vars]
         for v, r in zip(self.b_vars, self.A):
             if v in self.costs:
                 c = self.costs[v]
                 for j in range(self.n):
-                    c[j] -= c*r[j]
+                    self.c[j] -= c*r[j]
 
     def pivot_out_slacks(self, remove_dependent_rows=False):
         for i, sv in enumerate(self.b_vars):
@@ -141,7 +149,7 @@ class SimplexTableau:
                 if self.debug_level > 0:
                     print(f"Pivoting out {sv}.")
                 for j, nv in enumerate(self.nb_vars):
-                    if not self.is_slack(sv) and \
+                    if not self.is_slack(nv) and \
                        abs(self.A[i][j]) > self.epsilon:
                         self.pivot(i, j)
                         break
@@ -166,12 +174,31 @@ class SimplexTableau:
         self.update_vars()
 
     def two_phase_simplex(self):
-        self.setup_first_phase_cost()
+        if self.debug_level > 1:
+            self.dump()
+        if self.debug_level > 0:
+            print("*********************\n"
+                  "* Start First Phase *\n"
+                  "*********************")
+
+        self.init_first_phase_costs()
         self.primal(skip_slacks=False)
         if self.calc_first_phase_cost() > self.epsilon:
             return 'infeasible'
+
+        if self.debug_level > 0:
+            print("********************\n"
+                  "* Pivot Out Slacks *\n"
+                  "********************")
+
         self.pivot_out_slacks()
-        self.setup_costs()
+
+        if self.debug_level > 0:
+            print("**********************\n"
+                  "* Start Second Phase *\n"
+                  "**********************")
+
+        self.init_reduced_costs()
         return self.primal(skip_slacks=True)
 
     def dual_step(self):
@@ -191,17 +218,40 @@ class SimplexTableau:
         self.pivot(i, j)
 
     def dual(self):
+        if self.debug_level > 0:
+            print("Start Dual Simplex")
+        if self.debug_level > 1:
+            self.dump()
         while True:
             ret = self.dual_step()
             if ret in ['optimal', 'unbounded']:
                 return ret
 
     def two_phase_simplex_2(self):
+        if self.debug_level > 1:
+            self.dump()
+        if self.debug_level > 0:
+            print("********************\n"
+                  "* Pivot Out Slacks *\n"
+                  "********************")
+
         self.pivot_out_slacks()
-        self.setup_zero_cost()
+
+        if self.debug_level > 0:
+            print("*********************\n"
+                  "* Start First Phase *\n"
+                  "*********************")
+
+        self.init_zero_reduced_costs()
         if self.dual() == 'unbounded':
             return 'infeasible'
-        self.setup_costs()
+
+        if self.debug_level > 0:
+            print("**********************\n"
+                  "* Start Second Phase *\n"
+                  "**********************")
+
+        self.init_reduced_costs()
         return self.primal(skip_slacks=True)
 
 
@@ -225,7 +275,7 @@ def make_example():
     s.A[2][4] = Frac(1)
     s.b[2] = Frac(14)
 
-    s.setup_first_phase_cost()
+    s.set_costs(x1=1, x2=2, x3=3, x4=4, x5=5)
     return s
 
 
@@ -249,7 +299,7 @@ def make_example2():
     s.A[2][4] = Frac(1)
     s.b[2] = Frac(3)
 
-    s.setup_first_phase_cost()
+    s.set_costs(x1=1, x2=2, x3=3, x4=4, x5=5)
     return s
 
 
@@ -273,5 +323,5 @@ def make_example3():
     s.A[2][4] = Frac(1)
     s.b[2] = Frac(0)
 
-    s.setup_first_phase_cost()
+    s.set_costs(x1=1, x2=2, x3=3, x4=4, x5=5)
     return s
