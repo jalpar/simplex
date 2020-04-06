@@ -93,11 +93,11 @@ class SimplexTableau:
     def calc_cost(self):
         return sum(v*b for v, b in zip(self.b_vars, self.b))
 
-    def primal_step(self):
+    def primal_step(self, skip_slacks=True):
         try:
-            v, j = min((self.nb_vars[j], j)
-                       for j in range(self.n)
-                       if self.c[j] > self.epsilon)
+            v, j = min((v, j)
+                       for j, v in enumerate(self.nb_vars)
+                       if self.c[j] > self.epsilon and not self.is_slack(v))
         except ValueError:
             return 'optimal'
         try:
@@ -131,50 +131,57 @@ class SimplexTableau:
                 for j in range(self.n):
                     c[j] -= c*r[j]
 
-    def pivot_out_slacks(self):
-        while True:
-            for i, sv in enumerate(self.b_vars):
+    def pivot_out_slacks(self, remove_dependent_rows=False):
+        for i, sv in enumerate(self.b_vars):
+            if self.is_slack(sv):
                 if self.debug_level > 0:
                     print(f"Pivoting out {sv}.")
+                for j, nv in enumerate(self.nb_vars):
+                    if not self.is_slack(sv) and \
+                       abs(self.A[i][j]) > self.epsilon:
+                        self.pivot(i, j)
+                        break
+                else:
+                    if self.debug_level > 0:
+                        print("Warning: Singular Matrix")
+        if remove_dependent_rows:
+            for i, sv in reversed(list(enumerate(self.b_vars))):
                 if self.is_slack(sv):
-                    for j, nv in enumerate(self.nb_vars):
-                        if not self.is_slack(sv) and \
-                           abs(self.A[i][j]) > self.epsilon:
-                            break
-                    else:
-                        # raise Exception("Singular matrix!!!!")
-                        if self.debug_level > 0:
-                            print(f"Singular matrix, remove row {i} ({sv}).")
-                            del self.A[i]
-                            del self.b_vars[i]
-                            self.update_vars()
-                            break
-                    self.pivot(i, j)
-                    break
-            else:
-                break
+                    if self.debug_level > 0:
+                        print(f"Singular matrix, remove row {i} ({sv}).")
+                    del self.A[i]
+                    del self.b_vars[i]
+            self.update_vars()
 
-    def two_phase_simplex(self, **costs):
+    def remove_slacks(self):
+        for j, sv in reversed(list(enumerate(self.nb_vars))):
+            if self.is_slack(sv):
+                for a in self.A:
+                    del a[j]
+                del self.nb_vars[j]
+        self.update_vars()
+
+    def two_phase_simplex(self):
         self.first_phase_cost()
-        self.primal()
+        self.primal(skip_slacks=False)
         if self.calc_first_phase_cost() > self.epsilon:
             return 'infeasible'
         self.pivot_out_slacks()
-        self.costs = copy.copy(costs)
         self.setup_costs()
-        return self.primal()
+        return self.primal(skip_slacks=True)
 
     def dual_step(self):
         try:
             v, i = min((self.b_vars[i], i)
                        for i in range(self.m)
-                       if self.b[i] > -self.epsilon)
+                       if self.b[i] < -self.epsilon)
         except ValueError:
             return 'optimal'
         try:
-            delta, v, j = min((self.c[j]/self.A[i][j], self.nb_vars[i], j)
-                              for j in range(self.n)
-                              if self.A[i][j] < -self.epsilon)
+            delta, v, j = min((self.c[j]/self.A[i][j], v, j)
+                              for j, v in enumerate(self.nb_vars)
+                              if self.A[i][j] < -self.epsilon and
+                              not self.is_slack(v))
         except ValueError:
             return 'unbounded'
         self.pivot(i, j)
@@ -256,60 +263,3 @@ def make_example3():
 
     s.first_phase_cost()
     return s
-
-# class Simplex:
-#     def __init__(self, n, m):
-#         Z = 0
-#         self.epsilon = 0
-#         self.m = m
-#         self.n = n
-#         self.A = [[Z]*n for i in range(m)]
-#         self.Inv = [[Z]*m for i in range(m)]
-#         self.b = [Z]*m
-#         self.c = [Z]*n
-#         self.vstat = [(0, i) for i in range(n)] + [(1, i) for i in range(n, m)]
-#         self.vars = (list(range(0)), list(range(m)))
-
-#     def gauss(self, i, j):
-#         for l in range(n):
-#             self.A[i][l] /= scale
-#         for l in range(m):
-#             self.Inv[i][l] /= scale
-#         for k in range(m):
-#             if k != i:
-#                 scale = self.A[k][j]
-#                 for l in range(n):
-#                     self.A[k][l] -= scale*self.A[i][l]
-#                 for l in range(m):
-#                     self.Inv[k][l] -= scale*self.Inv[i][l]
-
-#     def gauss_base(self, rows, cols):
-#         base = []
-#         for j in cols:
-#             for i in rows:
-#                 if self.A[i][j] > self.epsilon:
-#                     base.append((i, j))
-#                     self.gauss[i][j]
-#                     break
-#             if len(base) == m:
-#                 return base
-#         print('ERROR: Not full rank')
-#         exit(1)
-
-#     def two_phase():
-#         for i in range(m):
-#             if b[i] < 0:
-#                 for j in range(n):
-#                     self.A[i][j] *= -1
-#                 for j in range(m):
-#                     self.Inv[i][j] *= -1
-#                 b[i] *= -1
-#         sim = SimplexTableau(m, n)
-#         sim.A = copy.copy(self.A)
-#         sim.b = copy.copy(self.b)
-#         sim.c = [-sum(A[i][j] for j in range(m)) for i in range(n)]
-#         sim.bland_primal()
-#         base = sim.vars[1]
-#         for i in range(m):
-#             if base[i] >= n and sim.b[i] > self.epsilon:
-#                 return 'infeasible'
