@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 # -*- indent-tabs-mode: nil; -*-
 
-import json
-import sys
+import copy
 from fractions import Fraction as Frac
 
 
@@ -41,6 +40,7 @@ class SimplexTableau:
         self.nb_vars = list(f"x{i}" for i in range(1, n+1))
         self.b_vars = list(f"s{i}" for i in range(n+1, n+m+1))
         self.update_vars()
+        self.costs = {}
 
     def dump(self):
         M = [[''] + self.nb_vars] + \
@@ -54,6 +54,9 @@ class SimplexTableau:
         for i in range(self.m):
             print(f"{self.b_vars[i]}:{self.b[i]} ", end='')
         print()
+
+    def is_slack(v):
+        return v[1] == 's'
 
     def pivot(self, i, j):
         if self.debug_level > 0:
@@ -87,6 +90,9 @@ class SimplexTableau:
             print()
             self.dump()
 
+    def calc_cost(self):
+        return sum(v*b for v, b in zip(self.b_vars, self.b))
+
     def primal_step(self):
         try:
             v, j = min((self.nb_vars[j], j)
@@ -113,11 +119,15 @@ class SimplexTableau:
         for j in range(self.n):
             self.c[j] = sum(self.A[i][j] for i in range(self.m))
 
-    def setup_costs(self, **costs):
-        self.c = [costs[v] if v in costs else self.Z for v in self.nb_vars]
+    def calc_first_phase_cost(self):
+        return sum(b for v, b in zip(self.b_vars, self.b) if self.is_slack(v))
+
+    def setup_costs(self):
+        self.c = [self.costs[v] if v in self.costs else self.Z
+                  for v in self.nb_vars]
         for v, r in zip(self.b_vars, self.A):
-            if v in costs:
-                c = costs[v]
+            if v in self.costs:
+                c = self.costs[v]
                 for j in range(self.n):
                     c[j] -= c*r[j]
 
@@ -126,9 +136,10 @@ class SimplexTableau:
             for i, sv in enumerate(self.b_vars):
                 if self.debug_level > 0:
                     print(f"Pivoting out {sv}.")
-                if sv[0] == 's':
+                if self.is_slack(sv):
                     for j, nv in enumerate(self.nb_vars):
-                        if nv[0] != 's' and abs(self.A[i][j]) > self.epsilon:
+                        if not self.is_slack(sv) and \
+                           abs(self.A[i][j]) > self.epsilon:
                             break
                     else:
                         # raise Exception("Singular matrix!!!!")
@@ -146,9 +157,12 @@ class SimplexTableau:
     def two_phase_simplex(self, **costs):
         self.first_phase_cost()
         self.primal()
+        if self.calc_first_phase_cost() > self.epsilon:
+            return 'infeasible'
         self.pivot_out_slacks()
-        self.setup_costs(**costs)
-        self.primal()
+        self.costs = copy.copy(costs)
+        self.setup_costs()
+        return self.primal()
 
     def dual_step(self):
         try:
