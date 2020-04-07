@@ -53,9 +53,14 @@ class SimplexTableau:
             [['c'] + self.c]
         print_m(M)
         print()
-        print("Primal solution: ", end="")
-        for i in range(self.m):
-            print(f"{self.b_vars[i]}:{self.b[i]} ", end='')
+        print("Primal solution:",
+              ' '.join(f"{vr}={vl}"
+                       for vr, vl in sorted(zip(self.b_vars, self.b))))
+        print("Dual solution:",
+              ' '.join(f"{vr}={-vl}"
+                       for vr, vl in sorted(zip(self.nb_vars, self.c))
+                       if self.is_slack(vr)))
+        print("Objective value:", self.calc_obj())
         print()
 
     def is_slack(self, v):
@@ -94,8 +99,9 @@ class SimplexTableau:
             print()
             self.dump()
 
-    def calc_cost(self):
-        return sum(v*b for v, b in zip(self.b_vars, self.b))
+    def calc_obj(self):
+        return sum((self.costs[v] if v in self.costs else self.Z)*b
+                   for v, b in zip(self.b_vars, self.b))
 
     def primal_step(self, skip_slacks=True):
         try:
@@ -131,7 +137,7 @@ class SimplexTableau:
         for j in range(self.n):
             self.c[j] = sum(self.A[i][j] for i in range(self.m))
 
-    def calc_first_phase_cost(self):
+    def calc_first_phase_obj(self):
         return sum(b for v, b in zip(self.b_vars, self.b) if self.is_slack(v))
 
     def init_reduced_costs(self):
@@ -174,6 +180,7 @@ class SimplexTableau:
         self.update_vars()
 
     def two_phase_simplex(self):
+        # TODO: check if b>=0
         if self.debug_level > 1:
             self.dump()
         if self.debug_level > 0:
@@ -183,7 +190,7 @@ class SimplexTableau:
 
         self.init_first_phase_costs()
         self.primal(skip_slacks=False)
-        if self.calc_first_phase_cost() > self.epsilon:
+        if self.calc_first_phase_obj() > self.epsilon:
             return 'infeasible'
 
         if self.debug_level > 0:
