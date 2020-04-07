@@ -3,11 +3,36 @@
 
 import copy
 import random
+import json
 from fractions import Fraction as Frac
 
 
 def sign(n):
     return 1 if n >= 0 else 0
+
+
+def defrac_num(v):
+    return [v.numerator, v.denominator] if isinstance(v, Frac) else v
+
+
+def refrac_num(v):
+    return Frac(v[0], v[1]) if isinstance(v, list) else v
+
+
+def defrac_list(vec):
+    return [defrac_num(v) for v in vec]
+
+
+def refrac_list(vec):
+    return [refrac_num(v) for v in vec]
+
+
+def defrac_dict(dct):
+    return {k: defrac_num(v) for k, v in dct.items()}
+
+
+def refrac_dict(dct):
+    return {k: refrac_num(v) for k, v in dct.items()}
 
 
 def print_m(M):
@@ -29,19 +54,55 @@ class SimplexTableau:
         self.vars = {v: (0, i) for i, v in enumerate(self.nb_vars)}
         self.vars.update((v, (1, i)) for i, v in enumerate(self.b_vars))
 
-    def __init__(self, m, n):
+    def __init__(self, m, n=0):
         self.Z = 0
         self.debug_level = 2
         self.epsilon = 0
-        self.m = m
-        self.n = n
-        self.A = [[self.Z]*n for i in range(m)]
-        self.b = [self.Z]*m
-        self.c = [self.Z]*n
-        self.nb_vars = list(f"x{i}" for i in range(1, n+1))
-        self.b_vars = list(f"s{i}" for i in range(1, m+1))
-        self.update_vars()
-        self.costs = {}
+        if not isinstance(m, str):
+            self.m = m
+            self.n = n
+            self.A = [[self.Z]*n for i in range(m)]
+            self.b = [self.Z]*m
+            self.c = [self.Z]*n
+            self.nb_vars = list(f"x{i}" for i in range(1, n+1))
+            self.b_vars = list(f"s{i}" for i in range(1, m+1))
+            self.update_vars()
+            self.costs = {}
+        else:
+            inp = json.load(open(m))
+            self.m = inp["m"]
+            self.n = inp["n"]
+            self.A = [refrac_list(r) for r in inp["A"]]
+            self.b = refrac_list(inp["b"])
+            self.c = refrac_list(inp["c"])
+            self.nb_vars = inp["nb_vars"]
+            self.b_vars = inp["b_vars"]
+            self.update_vars()
+            self.costs = refrac_dict(inp["costs"])
+
+    def save(self, fname):
+        out = {
+            "m": self.m,
+            "n": self.n,
+            "A": [defrac_list(r) for r in self.A],
+            "b": defrac_list(self.b),
+            "c": defrac_list(self.c),
+            "nb_vars": self.nb_vars,
+            "b_vars": self.b_vars,
+            "costs": defrac_dict(self.costs)
+        }
+        json.dump(out, open(fname, "w"), indent=2)
+
+    def clone(self):
+        s = SimplexTableau(self.m, self.n)
+        s.A = copy.deepcopy(self.A)
+        s.b = copy.deepcopy(self.b)
+        s.c = copy.deepcopy(self.c)
+        s.nb_vars = copy.deepcopy(self.nb_vars)
+        s.b_vars = copy.deepcopy(self.b_vars)
+        s.vars = copy.deepcopy(self.vars)
+        s.costs = copy.deepcopy(self.costs)
+        return s
 
     def _make_frac_num(self, v, max_denominator=None):
         if max_denominator:
@@ -278,6 +339,47 @@ class SimplexTableau:
         self.init_reduced_costs()
         return self.primal(skip_slacks=True)
 
+    def two_phase_simplex_3(self):
+        b_save = copy.copy(self.b)
+        self.b = [self.Z]*self.m
+
+        self.init_reduced_costs()
+
+        if self.debug_level > 1:
+            self.dump()
+        if self.debug_level > 0:
+            print("********************\n"
+                  "* Pivot Out Slacks *\n"
+                  "********************")
+
+        self.pivot_out_slacks()
+
+        if self.debug_level > 0:
+            print("*********************\n"
+                  "* Start First Phase *\n"
+                  "*********************")
+
+        if self.primal(skip_slacks=True) == 'unbounded':
+            return 'infeasible_or_unbounded'
+
+        self.b = [
+            sum((row[self.vars[f"s{j+1}"][1]]
+                 if self.vars[f"s{j+1}"][0] == 0 else 0)
+                * b_save[j] for j in range(self.m)) +
+            (b_save[i] if self.b_vars[i] == f"s{i+1}" else 0)
+            for i, row in enumerate(self.A)]
+
+        if self.debug_level > 0:
+            print("**********************\n"
+                  "* Start Second Phase *\n"
+                  "**********************")
+
+        ret = self.dual()
+        if ret == 'optimal':
+            return 'optimal'
+        elif ret == 'unbounded':
+            return 'infeasible'
+
 
 def make_example():
     s = SimplexTableau(3, 5)
@@ -333,5 +435,22 @@ def make_example_rand(m, n, r):
     s.b = [random.randint(0, r) for i in range(m)]
 
     s.set_costs(**{f"x{j}": random.randint(-r, r) for j in range(1, n+1)})
+    s.make_frac()
+    return s
+
+
+def make_example_assingment(n, r):
+    s = SimplexTableau(2*n, n*n)
+    s.b = [1 for i in range(2*n)]
+    for i in range(n):
+        for j in range(n):
+            s.A[i][i*n+j] = 1
+            s.A[i+n][i+j*n] = 1
+    s.nb_vars = [f"x{i}-{j}" for i in range(1, n+1) for j in range(1, n+1)]
+
+    # s.set_costs(**{f"x{i}-{j}": random.randint(0, r)
+    #                for i in range(1, n+1) for j in range(1, n+1)})
+    s.set_costs(**{f"x{i}-{j}": 1
+                   for i in range(1, n+1) for j in range(1, n+1)})
     s.make_frac()
     return s
