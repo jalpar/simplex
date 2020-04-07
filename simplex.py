@@ -42,8 +42,51 @@ class SimplexTableau:
         self.update_vars()
         self.costs = {}
 
+    def _make_frac_num(self, v, max_denominator=None):
+        if max_denominator:
+            return Frac(v).limit_denominator(max_denominator)
+        else:
+            return Frac(v)
+
+    def _make_frac_vec(self, vec, max_denominator=None):
+        return [self._make_frac_num(v, max_denominator=max_denominator)
+                for v in vec]
+
+    def make_frac(self, max_denominator=1000000):
+        self.A = [self._make_frac_vec(row, max_denominator=max_denominator)
+                  for row in self.A]
+        self.b = self._make_frac_vec(self.b, max_denominator=max_denominator)
+        self.c = self._make_frac_vec(self.c, max_denominator=max_denominator)
+
+    def is_slack(self, v):
+        return v[0] == 's'
+
     def set_costs(self, **costs):
         self.costs = copy.copy(costs)
+
+    def init_zero_reduced_costs(self):
+        for j in range(self.n):
+            self.c = [self.Z] * self.n
+
+    def init_first_phase_costs(self):
+        for j in range(self.n):
+            self.c[j] = sum(self.A[i][j] for i in range(self.m))
+
+    def init_reduced_costs(self):
+        self.c = [self.costs[v] if v in self.costs else self.Z
+                  for v in self.nb_vars]
+        for v, r in zip(self.b_vars, self.A):
+            if v in self.costs:
+                c = self.costs[v]
+                for j in range(self.n):
+                    self.c[j] -= c*r[j]
+
+    def calc_obj(self):
+        return sum((self.costs[v] if v in self.costs else self.Z)*b
+                   for v, b in zip(self.b_vars, self.b))
+
+    def calc_first_phase_obj(self):
+        return sum(b for v, b in zip(self.b_vars, self.b) if self.is_slack(v))
 
     def dump(self):
         M = [[''] + self.nb_vars] + \
@@ -62,9 +105,6 @@ class SimplexTableau:
                        if self.is_slack(vr)))
         print("Objective value:", self.calc_obj())
         print()
-
-    def is_slack(self, v):
-        return v[0] == 's'
 
     def pivot(self, i, j):
         if self.debug_level > 0:
@@ -99,10 +139,6 @@ class SimplexTableau:
             print()
             self.dump()
 
-    def calc_obj(self):
-        return sum((self.costs[v] if v in self.costs else self.Z)*b
-                   for v, b in zip(self.b_vars, self.b))
-
     def primal_step(self, skip_slacks=True):
         try:
             v, j = min((v, j)
@@ -129,25 +165,31 @@ class SimplexTableau:
             if ret in ['optimal', 'unbounded']:
                 return ret
 
-    def init_zero_reduced_costs(self):
-        for j in range(self.n):
-            self.c = [self.Z] * self.n
+    def dual_step(self):
+        try:
+            v, i = min((self.b_vars[i], i)
+                       for i in range(self.m)
+                       if self.b[i] < -self.epsilon)
+        except ValueError:
+            return 'optimal'
+        try:
+            delta, v, j = min((self.c[j]/self.A[i][j], v, j)
+                              for j, v in enumerate(self.nb_vars)
+                              if self.A[i][j] < -self.epsilon and
+                              not self.is_slack(v))
+        except ValueError:
+            return 'unbounded'
+        self.pivot(i, j)
 
-    def init_first_phase_costs(self):
-        for j in range(self.n):
-            self.c[j] = sum(self.A[i][j] for i in range(self.m))
-
-    def calc_first_phase_obj(self):
-        return sum(b for v, b in zip(self.b_vars, self.b) if self.is_slack(v))
-
-    def init_reduced_costs(self):
-        self.c = [self.costs[v] if v in self.costs else self.Z
-                  for v in self.nb_vars]
-        for v, r in zip(self.b_vars, self.A):
-            if v in self.costs:
-                c = self.costs[v]
-                for j in range(self.n):
-                    self.c[j] -= c*r[j]
+    def dual(self):
+        if self.debug_level > 0:
+            print("Start Dual Simplex")
+        if self.debug_level > 1:
+            self.dump()
+        while True:
+            ret = self.dual_step()
+            if ret in ['optimal', 'unbounded']:
+                return ret
 
     def pivot_out_slacks(self, remove_dependent_rows=False):
         for i, sv in enumerate(self.b_vars):
@@ -208,32 +250,6 @@ class SimplexTableau:
         self.init_reduced_costs()
         return self.primal(skip_slacks=True)
 
-    def dual_step(self):
-        try:
-            v, i = min((self.b_vars[i], i)
-                       for i in range(self.m)
-                       if self.b[i] < -self.epsilon)
-        except ValueError:
-            return 'optimal'
-        try:
-            delta, v, j = min((self.c[j]/self.A[i][j], v, j)
-                              for j, v in enumerate(self.nb_vars)
-                              if self.A[i][j] < -self.epsilon and
-                              not self.is_slack(v))
-        except ValueError:
-            return 'unbounded'
-        self.pivot(i, j)
-
-    def dual(self):
-        if self.debug_level > 0:
-            print("Start Dual Simplex")
-        if self.debug_level > 1:
-            self.dump()
-        while True:
-            ret = self.dual_step()
-            if ret in ['optimal', 'unbounded']:
-                return ret
-
     def two_phase_simplex_2(self):
         if self.debug_level > 1:
             self.dump()
@@ -264,71 +280,47 @@ class SimplexTableau:
 
 def make_example():
     s = SimplexTableau(3, 5)
-    s.A[0][0] = Frac(1)
-    s.A[0][1] = Frac(1)
-    s.A[0][2] = Frac(1)
-    s.A[0][4] = Frac(1)
-    s.b[0] = Frac(7)
+    s.A[0] = [1, 1, 1, 0, 1]
+    s.b[0] = 7
 
-    s.A[1][0] = Frac(1)
-    s.A[1][3] = Frac(2)
-    s.A[1][4] = Frac(2)
-    s.b[1] = Frac(9)
+    s.A[1] = [1, 0, 0, 2, 2]
+    s.b[1] = 9
 
-    s.A[2][0] = Frac(-1)
-    s.A[2][1] = Frac(2)
-    s.A[2][2] = Frac(-3)
-    s.A[2][3] = Frac(5)
-    s.A[2][4] = Frac(1)
-    s.b[2] = Frac(14)
+    s.A[2] = [-1, 2, -3, 5, 1]
+    s.b[2] = 14
 
     s.set_costs(x1=1, x2=2, x3=3, x4=4, x5=5)
+    s.make_frac()
     return s
 
 
 def make_example2():
     s = SimplexTableau(3, 5)
-    s.A[0][0] = Frac(1)
-    s.A[0][1] = Frac(1)
-    s.A[0][2] = Frac(1)
-    s.A[0][4] = Frac(1)
-    s.b[0] = Frac(2)
+    s.A[0] = [1, 1, 1, 0, 1]
+    s.b[0] = 2
 
-    s.A[1][0] = Frac(1)
-    s.A[1][3] = Frac(2)
-    s.A[1][4] = Frac(2)
-    s.b[1] = Frac(4)
+    s.A[1] = [1, 0, 0, 2, 2]
+    s.b[1] = 4
 
-    s.A[2][0] = Frac(-1)
-    s.A[2][1] = Frac(2)
-    s.A[2][2] = Frac(-3)
-    s.A[2][3] = Frac(5)
-    s.A[2][4] = Frac(1)
-    s.b[2] = Frac(3)
+    s.A[2] = [-1, 2, -3, 5, 1]
+    s.b[2] = 3
 
     s.set_costs(x1=1, x2=2, x3=3, x4=4, x5=5)
+    s.make_frac()
     return s
 
 
 def make_example3():
     s = SimplexTableau(3, 5)
-    s.A[0][0] = Frac(1)
-    s.A[0][1] = Frac(1)
-    s.A[0][2] = Frac(1)
-    s.A[0][4] = Frac(1)
-    s.b[0] = Frac(3)
+    s.A[0] = [1, 1, 1, 0, 1]
+    s.b[0] = 3
 
-    s.A[1][0] = Frac(1)
-    s.A[1][3] = Frac(2)
-    s.A[1][4] = Frac(2)
-    s.b[1] = Frac(2)
+    s.A[1] = [1, 0, 0, 2, 2]
+    s.b[1] = 2
 
-    s.A[2][0] = Frac(-1)
-    s.A[2][1] = Frac(2)
-    s.A[2][2] = Frac(-3)
-    s.A[2][3] = Frac(5)
-    s.A[2][4] = Frac(1)
-    s.b[2] = Frac(0)
+    s.A[2] = [-1, 2, -3, 5, 1]
+    s.b[2] = 0
 
     s.set_costs(x1=1, x2=2, x3=3, x4=4, x5=5)
+    s.make_frac()
     return s
