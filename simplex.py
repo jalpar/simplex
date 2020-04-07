@@ -2,6 +2,7 @@
 # -*- indent-tabs-mode: nil; -*-
 
 import copy
+import random
 from fractions import Fraction as Frac
 
 
@@ -322,5 +323,15 @@ def make_example3():
     s.b[2] = 0
 
     s.set_costs(x1=1, x2=2, x3=3, x4=4, x5=5)
+    s.make_frac()
+    return s
+
+
+def make_example_rand(m, n, r):
+    s = SimplexTableau(m, n)
+    s.A = [[random.randint(0, r) for j in range(n)] for i in range(m)]
+    s.b = [random.randint(0, r) for i in range(m)]
+
+    s.set_costs(**{f"x{j}": random.randint(-r, r) for j in range(1, n+1)})
     s.make_frac()
     return s
