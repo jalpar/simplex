@@ -7,10 +7,6 @@ import json
 from fractions import Fraction as Frac
 
 
-def sign(n):
-    return 1 if n >= 0 else 0
-
-
 def defrac_num(v):
     return [v.numerator, v.denominator] if isinstance(v, Frac) else v
 
@@ -55,19 +51,18 @@ class SimplexTableau:
         self.vars.update((v, (1, i)) for i, v in enumerate(self.b_vars))
 
     def __init__(self, m, n=0):
-        self.Z = 0
         self.debug_level = 2
-        self.epsilon = 0
         if not isinstance(m, str):
             self.m = m
             self.n = n
-            self.A = [[self.Z]*n for i in range(m)]
-            self.b = [self.Z]*m
-            self.c = [self.Z]*n
+            self.A = [[0]*n for i in range(m)]
+            self.b = [0]*m
+            self.c = [0]*n
             self.nb_vars = list(f"x{i}" for i in range(1, n+1))
             self.b_vars = list(f"s{i}" for i in range(1, m+1))
             self.update_vars()
             self.costs = {}
+            self.epsilon = 0.0000001
         else:
             inp = json.load(open(m))
             self.m = inp["m"]
@@ -79,6 +74,7 @@ class SimplexTableau:
             self.b_vars = inp["b_vars"]
             self.update_vars()
             self.costs = refrac_dict(inp["costs"])
+            self.epsilon = inp["epsilon"]
 
     def save(self, fname):
         out = {
@@ -89,7 +85,8 @@ class SimplexTableau:
             "c": defrac_list(self.c),
             "nb_vars": self.nb_vars,
             "b_vars": self.b_vars,
-            "costs": defrac_dict(self.costs)
+            "costs": defrac_dict(self.costs),
+            "epsilon": self.epsilon
         }
         json.dump(out, open(fname, "w"), indent=2)
 
@@ -102,6 +99,7 @@ class SimplexTableau:
         s.b_vars = copy.deepcopy(self.b_vars)
         s.vars = copy.deepcopy(self.vars)
         s.costs = copy.deepcopy(self.costs)
+        s.epsilon = self.epsilon
         return s
 
     def _make_frac_num(self, v, max_denominator=None):
@@ -119,6 +117,7 @@ class SimplexTableau:
                   for row in self.A]
         self.b = self._make_frac_vec(self.b, max_denominator=max_denominator)
         self.c = self._make_frac_vec(self.c, max_denominator=max_denominator)
+        self.epsilon = 0
 
     def is_slack(self, v):
         return v[0] == 's'
@@ -205,7 +204,8 @@ class SimplexTableau:
         try:
             v, j = min((v, j)
                        for j, v in enumerate(self.nb_vars)
-                       if self.c[j] > self.epsilon and not self.is_slack(v))
+                       if self.c[j] > self.epsilon and
+                       not (skip_slacks and self.is_slack(v)))
         except ValueError:
             return 'optimal'
         try:
@@ -283,7 +283,7 @@ class SimplexTableau:
                 del self.nb_vars[j]
         self.update_vars()
 
-    def two_phase_simplex(self):
+    def two_phase_simplex_pp(self):
         # TODO: check if b>=0
         if self.debug_level > 1:
             self.dump()
@@ -312,7 +312,7 @@ class SimplexTableau:
         self.init_reduced_costs()
         return self.primal(skip_slacks=True)
 
-    def two_phase_simplex_2(self):
+    def two_phase_simplex_dp(self):
         if self.debug_level > 1:
             self.dump()
         if self.debug_level > 0:
@@ -339,7 +339,7 @@ class SimplexTableau:
         self.init_reduced_costs()
         return self.primal(skip_slacks=True)
 
-    def two_phase_simplex_3(self):
+    def two_phase_simplex_pd(self):
         b_save = copy.copy(self.b)
         self.b = [self.Z]*self.m
 
@@ -448,9 +448,40 @@ def make_example_assingment(n, r):
             s.A[i+n][i+j*n] = 1
     s.nb_vars = [f"x{i}-{j}" for i in range(1, n+1) for j in range(1, n+1)]
 
-    # s.set_costs(**{f"x{i}-{j}": random.randint(0, r)
-    #                for i in range(1, n+1) for j in range(1, n+1)})
-    s.set_costs(**{f"x{i}-{j}": 1
+    s.set_costs(**{f"x{i}-{j}": random.randint(0, r)
                    for i in range(1, n+1) for j in range(1, n+1)})
-    s.make_frac()
+    # s.set_costs(**{f"x{i}-{j}": 1
+    #                for i in range(1, n+1) for j in range(1, n+1)})
+    # s.make_frac()
     return s
+
+
+def test_ass(s, r):
+    import datetime
+    now = datetime.datetime.now
+
+    ao = make_example_assingment(s, r)
+
+    a = ao.clone()
+    a.debug_level = 0
+    n = now()
+    a.two_phase_simplex()
+    d = now() - n
+    print("Obj:", a.calc_obj())
+    print(d.seconds+d.microseconds/1000000)
+
+    a = ao.clone()
+    a.debug_level = 0
+    n = now()
+    a.two_phase_simplex_2()
+    d = now() - n
+    print("Obj:", a.calc_obj())
+    print(d.seconds+d.microseconds/1000000)
+
+    a = ao.clone()
+    a.debug_level = 0
+    n = now()
+    a.two_phase_simplex_3()
+    d = now() - n
+    print("Obj:", a.calc_obj())
+    print(d.seconds+d.microseconds/1000000)
